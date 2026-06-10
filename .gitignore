@@ -1,0 +1,24 @@
+# Visual Studio 관련 임시/캐시 파일
+.vs/
+*.user
+*.suo
+*.db
+*.opendb
+*.VC.db
+
+# 빌드 결과물 (절대 깃허브에 올리면 안 되는 것들)
+x64/
+x86/
+Debug/
+Release/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+
+# 테스트용 대용량 미디어 파일 (이미지는 코드가 아니므로 제외)
+*.bmp
+*.jpg
+*.png
