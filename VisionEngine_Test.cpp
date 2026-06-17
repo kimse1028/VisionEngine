@@ -1,77 +1,77 @@
 ﻿#include <iostream>
 #include <memory>
+#include <string>
 #include <opencv2/opencv.hpp>
 
-// 모든 영상처리 노드가 지켜야 할 공통 규격 (인터페이스)
+// 1. 공통 규격 (메뉴판)
 class BaseNode {
 public:
-    // 가상 소멸자: 부모를 통해 자식을 삭제할 때, 자식의 메모리까지 깔끔하게 지우기 위한 필수 안전장치야.
     virtual ~BaseNode() = default;
-
-    // 순수 가상 함수(= 0): "나는 껍데기일 뿐이니, 나를 상속받는 자식들은 무조건 이 함수를 직접 완성해라"는 강제 명령이야.
-    // 입력을 shared_ptr로 받고, 출력도 shared_ptr로 뱉어내.
     virtual std::shared_ptr<cv::Mat> process(std::shared_ptr<cv::Mat> input) = 0;
 };
 
-// BaseNode를 상속(public) 받는 ThresholdNode 클래스
-class ThresholdNode : public BaseNode {
+// 2. 이미지 입력 노드 (파일에서 이미지를 가져옴)
+class InputNode : public BaseNode {
+private:
+    std::string filePath; // 불러올 이미지 경로 저장
+
 public:
-    // 부모가 강제한 process 함수를 여기서 직접 구현해.
-    // override 키워드는 "부모의 함수를 내가 안전하게 덮어썼음"을 컴파일러에게 알려주는 확인 도장이야.
+    // 생성자: 노드가 만들어질 때 파일 경로를 미리 입력받아.
+    InputNode(const std::string& path) {
+        filePath = path;
+    }
+
+    // InputNode는 이전 노드에서 받는 input이 없으므로 무시하고 디스크에서 읽어와.
     std::shared_ptr<cv::Mat> process(std::shared_ptr<cv::Mat> input) override {
-        // 1. 방어 코드: 들어온 포스트잇이 비어있거나, 창고에 사진이 없으면 그냥 빈 포스트잇을 돌려보내.
-        if (!input || input->empty()) {
-            return nullptr;
+        auto output = std::make_shared<cv::Mat>(cv::imread(filePath));
+        if (output->empty()) {
+            std::cout << "에러: 이미지를 찾을 수 없어!" << std::endl;
+            return nullptr; // 실패하면 빈 포스트잇 반환
         }
-
-        // 2. 결과물을 담을 '새로운 창고'를 하나 빌리고 빈 포스트잇(output)을 만들어.
-        auto output = std::make_shared<cv::Mat>();
-
-        // 3. OpenCV 이진화(Threshold) 작업 수행
-        // *input(원본 창고)에서 사진을 꺼내서 이진화 처리를 한 뒤, *output(새 창고)에 넣어.
-        // 128보다 어두우면 0(검정), 밝으면 255(흰색)로 만들어버리는 함수야.
-        cv::threshold(*input, *output, 128, 255, cv::THRESH_BINARY);
-
-        // 4. 이진화가 완료된 새 사진의 주소가 적힌 포스트잇을 다음 노드로 넘겨.
         return output;
     }
 };
 
-// 나중에 우리가 만들 '이미지 입력 노드(Input Node)'의 역할을 할 함수야.
-std::unique_ptr<cv::Mat> loadImageNode(const std::string& filePath) {
-    // 1. 힙 메모리에 cv::Mat 객체를 생성하고 동시에 이미지를 로드해.
-    auto imgPtr = std::make_unique<cv::Mat>(cv::imread(filePath));
+// 3. 이진화 노드 (이미지를 흑백으로 만듦)
+class ThresholdNode : public BaseNode {
+public:
+    std::shared_ptr<cv::Mat> process(std::shared_ptr<cv::Mat> input) override {
+        if (!input || input->empty()) return nullptr;
 
-    // 2. 이미지가 잘 불러와졌는지 방어 코드를 작성해 주는 게 좋아.
-    // 스마트 포인터 내부의 멤버에 접근할 때는 화살표(->) 연산자를 사용해.
-    if (imgPtr->empty()) {
-        std::cout << "이미지를 불러올 수 없어. 파일 이름과 경로를 확인해 줘!" << std::endl;
+        auto output = std::make_shared<cv::Mat>(); 
+        // 128을 기준으로 흑과 백으로 나눔
+        cv::threshold(*input, *output, 128, 255, cv::THRESH_BINARY);
+
+        return output;
     }
-    else {
-        std::cout << "이미지 로드 성공! 크기: " << imgPtr->cols << " x " << imgPtr->rows << std::endl;
-    }
+};
 
-    // 3. 이미지 버퍼의 '소유권'을 반환해. (데이터 복사 발생 X)
-    return imgPtr;
-}
-
+// 4. 메인 엔진 (GUI에서 선을 연결하는 역할을 대신함)
 int main() {
-    std::cout << "Vision Engine 테스트 시작..." << std::endl;
+    std::cout << "노드 기반 비전 엔진 파이프라인 가동..." << std::endl;
 
-    // A. 파이프라인 시작: 이미지 로드 노드 실행
-    // sourceImage라는 유일한 주인이 test.jpg 메모리를 독점 관리하게 돼.
-    std::unique_ptr<cv::Mat> sourceImage = loadImageNode("test.bmp");
+    // [Step A] 부품(노드) 생성
+    // GUI에서 사용자가 화면에 'Input 상자'와 'Threshold 상자'를 끌어다 놓은 상황과 같아.
+    auto node1 = std::make_shared<InputNode>("test.bmp");
+    auto node2 = std::make_shared<ThresholdNode>();
 
-    // B. 데이터 확인 및 시각화
-    if (!sourceImage->empty()) {
-        // 스마트 포인터가 가리키는 '실제 데이터'를 꺼낼 때는 별표(*)를 붙여. (역참조 연산자)
-        cv::imshow("Vision Node Output", *sourceImage);
+    // [Step B] 파이프라인 연결 및 데이터 흐름 제어
+    // currentBuffer는 노드와 노드 사이를 이동하며 사진을 전달하는 '공유 포스트잇'이야.
+    std::shared_ptr<cv::Mat> currentBuffer = nullptr;
 
-        // 사용자가 아무 키나 누를 때까지 창을 띄워두고 대기 (밀리초 단위, 0은 무한 대기)
+    // 1번 노드 가동: 디스크에서 사진을 가져와서 포스트잇에 담음
+    currentBuffer = node1->process(currentBuffer);
+
+    // 2번 노드 가동: 1번이 넘겨준 사진을 받아서 흑백으로 만들고 다시 포스트잇을 업데이트함
+    // (이게 바로 GUI에서 마우스로 node1의 Output과 node2의 Input을 선으로 이은 것과 완벽히 같은 로직이야!)
+    currentBuffer = node2->process(currentBuffer);
+
+    // [Step C] 최종 결과물 시각화
+    if (currentBuffer && !currentBuffer->empty()) {
+        cv::namedWindow("Pipeline Result", cv::WINDOW_NORMAL);
+        cv::imshow("Pipeline Result", *currentBuffer);
         cv::waitKey(0);
     }
 
-    // C. main 함수가 끝나면 sourceImage의 수명이 다하면서, 
-    // unique_ptr이 알아서 이미지 메모리를 깔끔하게 청소해 줘. 메모리 누수 걱정 끝!
     return 0;
 }
